@@ -547,20 +547,18 @@ export default function GameCanvas() {
           </div>
           {/* tombol gas & rem (HP) */}
           <div className="pointer-events-none absolute bottom-4 left-0 right-0 z-20 flex items-end justify-between px-4">
-            {!gyroOn && (
-              <button
-                onPointerDown={(e) => {
-                  e.preventDefault()
-                  touchBrakeRef.current = true
-                }}
-                onPointerUp={() => (touchBrakeRef.current = false)}
-                onPointerLeave={() => (touchBrakeRef.current = false)}
-                onPointerCancel={() => (touchBrakeRef.current = false)}
-                className="pointer-events-auto h-20 w-20 touch-none select-none rounded-full bg-red-500/80 text-sm font-black text-white shadow-lg active:bg-red-600"
-              >
-                🛑 Rem
-              </button>
-            )}
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault()
+                touchBrakeRef.current = true
+              }}
+              onPointerUp={() => (touchBrakeRef.current = false)}
+              onPointerLeave={() => (touchBrakeRef.current = false)}
+              onPointerCancel={() => (touchBrakeRef.current = false)}
+              className="pointer-events-auto h-20 w-20 touch-none select-none rounded-full bg-red-500/80 text-sm font-black text-white shadow-lg active:bg-red-600"
+            >
+              🛑 Rem
+            </button>
             <button
               onPointerDown={(e) => {
                 e.preventDefault()
