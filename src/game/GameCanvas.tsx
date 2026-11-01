@@ -12,6 +12,7 @@ interface Popup {
 }
 
 const FLIP_KEY = 'tiltplane-flipY'
+const FLIPX_KEY = 'tiltplane-flipX'
 
 export default function GameCanvas() {
   const mountRef = useRef<HTMLDivElement>(null)
@@ -30,6 +31,7 @@ export default function GameCanvas() {
     y: 0,
   })
   const [flipY, setFlipY] = useState<boolean>(() => localStorage.getItem(FLIP_KEY) === '1')
+  const [flipX, setFlipX] = useState<boolean>(() => localStorage.getItem(FLIPX_KEY) === '1')
   const [finalScore, setFinalScore] = useState(0)
   const [speedLabel, setSpeedLabel] = useState<number>(GAME.SPEED_START)
 
@@ -51,6 +53,8 @@ export default function GameCanvas() {
   const mbInputRef = useRef<{ x: number; y: number; t: number }>({ x: 0, y: 0, t: 0 })
   const flipYRef = useRef(flipY)
   flipYRef.current = flipY
+  const flipXRef = useRef(flipX)
+  flipXRef.current = flipX
   const audioRef = useRef<GameAudio | null>(null)
   const readerRef = useRef<MicrobitReader | null>(null)
   const popupIdRef = useRef(0)
@@ -149,7 +153,8 @@ export default function GameCanvas() {
       // 1) micro:bit segar (< 1 detik)
       if (now - mbInputRef.current.t < GAME.MICROBIT_TIMEOUT_MS) {
         const flip = flipYRef.current ? -1 : 1
-        return { x: mbInputRef.current.x, y: mbInputRef.current.y * flip, source: 'microbit' }
+        const flipXv = flipXRef.current ? -1 : 1
+        return { x: mbInputRef.current.x * flipXv, y: mbInputRef.current.y * flip, source: 'microbit' }
       }
       // 2) sentuhan aktif
       if (touchRef.current.active) {
@@ -299,6 +304,13 @@ export default function GameCanvas() {
     })
   }
 
+  const toggleFlipX = () => {
+    setFlipX((v) => {
+      localStorage.setItem(FLIPX_KEY, v ? '0' : '1')
+      return !v
+    })
+  }
+
   const connectMb = async () => {
     try {
       await readerRef.current?.connect()
@@ -416,6 +428,10 @@ export default function GameCanvas() {
                   <label className="flex items-center gap-1 text-sm text-slate-700">
                     <input type="checkbox" checked={flipY} onChange={toggleFlip} className="h-4 w-4" />
                     Balik arah naik/turun
+                  </label>
+                  <label className="flex items-center gap-1 text-sm text-slate-700">
+                    <input type="checkbox" checked={flipX} onChange={toggleFlipX} className="h-4 w-4" />
+                    Balik arah kiri/kanan
                   </label>
                 </div>
               ) : (
