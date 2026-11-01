@@ -52,6 +52,14 @@ export default function GameCanvas() {
   })
   const [gyroOn, setGyroOn] = useState(false)
   const [gyroStatus, setGyroStatus] = useState<GyroStatus>({ state: 'idle' })
+  const [levelLabel, setLevelLabel] = useState<{ level: number; name: string; emoji: string }>({
+    level: 0,
+    name: GAME.BIOMES[0].name,
+    emoji: GAME.BIOMES[0].emoji,
+  })
+  const [playerName, setPlayerName] = useState(() => localStorage.getItem('tiltplane-name') ?? '')
+  const [leaderboard, setLeaderboard] = useState<Array<{ name: string; score: number; level: number }>>([])
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'ok' | 'fail'>('idle')
 
   // ---------- Semua state game berat ada di ref (60fps) ----------
   const phaseRef = useRef<GamePhase>('menu')
@@ -69,12 +77,18 @@ export default function GameCanvas() {
     y: 0,
   })
   const mbInputRef = useRef<{ x: number; y: number; t: number }>({ x: 0, y: 0, t: 0 })
+  const mbBtnRef = useRef({ a: false, b: false })
   const gyroInputRef = useRef<{ x: number; y: number; t: number }>({ x: 0, y: 0, t: 0 })
   const gyroActiveRef = useRef(false)
   const speedModeRef = useRef(speedMode)
   speedModeRef.current = speedMode
   const trickRef = useRef({ roll: 0, pitch: 0 })
   const gyroReaderRef = useRef<GyroReader | null>(null)
+  const touchGasRef = useRef(false)
+  const touchBrakeRef = useRef(false)
+  const distRef = useRef(0)
+  const levelRef = useRef(0)
+  const worldRef = useRef<World | null>(null)
   const flipYRef = useRef(flipY)
   flipYRef.current = flipY
   const flipXRef = useRef(flipX)
@@ -98,6 +112,9 @@ export default function GameCanvas() {
     reader.onStatus((s) => setMbStatus({ ...s }))
     reader.onInput((x, y) => {
       mbInputRef.current = { x, y, t: performance.now() }
+    })
+    reader.onButtons((a, b) => {
+      mbBtnRef.current = { a, b } // A=rem, B=gas
     })
     return () => {
       reader.dispose()
@@ -148,6 +165,7 @@ export default function GameCanvas() {
     mount.appendChild(renderer.domElement)
 
     const world: World = createWorld(scene)
+    worldRef.current = world
     const plane: Plane = createPlane()
     scene.add(plane.group)
     const entities: EntitySystems = createEntitySystems(scene)
@@ -185,6 +203,8 @@ export default function GameCanvas() {
     let raf = 0
     let last = performance.now()
     let hudTimer = 0
+    let lastLevel = 0
+    let lastBiome = 0
 
     const targetFromInputs = (): InputState => {
       const now = performance.now()
@@ -252,8 +272,23 @@ export default function GameCanvas() {
 
       if (phaseRef.current === 'playing') {
         const preset = GAME.SPEED_PRESETS[speedModeRef.current]
-        speedRef.current = Math.min(preset.max, speedRef.current + preset.accel * dt)
+        let s = speedRef.current + preset.accel * dt
+        const gasHeld = keysRef.current.has('f') || touchGasRef.current || mbBtnRef.current.b
+        const brakeHeld = keysRef.current.has('v') || touchBrakeRef.current || mbBtnRef.current.a
+        if (gasHeld) s += GAME.GAS_ACCEL * dt
+        if (brakeHeld) s -= GAME.BRAKE_DECEL * dt
+        const gasCap = preset.max * GAME.GAS_CAP_RATIO
+        const brakeFloor = Math.max(GAME.SPEED_MIN_HARD, preset.start * GAME.BRAKE_FLOOR_RATIO)
+        speedRef.current = Math.min(gasCap, Math.max(brakeFloor, s))
         if (invincibleRef.current > 0) invincibleRef.current -= dt
+        distRef.current += speedRef.current * dt
+        const lv = Math.min(GAME.MAX_LEVEL, Math.floor(distRef.current / GAME.LEVEL_SPAN))
+        levelRef.current = lv
+        const bi = Math.min(Math.floor(lv / GAME.LEVELS_PER_BIOME), GAME.BIOMES.length - 1)
+        if (bi !== lastBiome) {
+          lastBiome = bi
+          world.setBiome(bi)
+        }
       }
 
       // ----- input smoothing -----
@@ -295,6 +330,7 @@ export default function GameCanvas() {
         plane.group.position.x,
         plane.group.position.y,
         invincibleRef.current > 0,
+        levelRef.current,
       )
       handleEvents(events)
 
@@ -307,11 +343,18 @@ export default function GameCanvas() {
 
       renderer.render(scene, camera)
 
-      // HUD label kecepatan (4x per detik saja)
+      // HUD label kecepatan & level (4x per detik saja)
       hudTimer += dt
       if (hudTimer > 0.25) {
         hudTimer = 0
         setSpeedLabel(Math.round(speedRef.current))
+        const lv = levelRef.current
+        if (lv !== lastLevel) {
+          lastLevel = lv
+          const bi = Math.min(Math.floor(lv / GAME.LEVELS_PER_BIOME), GAME.BIOMES.length - 1)
+          const b = GAME.BIOMES[bi]
+          setLevelLabel({ level: lv, name: b.name, emoji: b.emoji })
+        }
       }
     }
     raf = requestAnimationFrame(tick)
@@ -339,6 +382,10 @@ export default function GameCanvas() {
     inputRef.current = { x: 0, y: 0.25, source: inputRef.current.source }
     trickRef.current.roll = 0
     trickRef.current.pitch = 0
+    distRef.current = 0
+    levelRef.current = 0
+    worldRef.current?.setBiome(0)
+    setSaveState('idle')
     setScore(0)
     setCombo(0)
     setLives(GAME.START_LIVES)
@@ -387,6 +434,42 @@ export default function GameCanvas() {
     gyroInputRef.current.t = 0
     setGyroOn(false)
   }
+
+  // ---------- Highscore ----------
+  const fetchLeaderboard = useCallback(async () => {
+    try {
+      const res = await fetch('/api/scores', { cache: 'no-store' })
+      if (!res.ok) return
+      const data = (await res.json()) as Array<{ name: string; score: number; level: number }>
+      setLeaderboard(data)
+    } catch {
+      /* server tidak tersedia — leaderboard disembunyikan saja */
+    }
+  }, [])
+
+  useEffect(() => {
+    void fetchLeaderboard()
+  }, [fetchLeaderboard])
+
+  const saveScore = useCallback(async () => {
+    const name = playerName.trim().slice(0, 16)
+    if (!name) return
+    localStorage.setItem('tiltplane-name', name)
+    setSaveState('saving')
+    try {
+      const res = await fetch('/api/scores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, score: finalScore, level: levelLabel.level }),
+      })
+      if (!res.ok) throw new Error('gagal')
+      const data = (await res.json()) as Array<{ name: string; score: number; level: number }>
+      setLeaderboard(data)
+      setSaveState('ok')
+    } catch {
+      setSaveState('fail')
+    }
+  }, [playerName, finalScore, levelLabel.level])
 
   const connectMb = async () => {
     try {
@@ -460,7 +543,36 @@ export default function GameCanvas() {
           </div>
           <div className="absolute left-4 top-24 z-10 text-2xl drop-shadow">{'❤️'.repeat(lives)}</div>
           <div className="absolute bottom-3 left-4 z-10 rounded bg-black/35 px-2 py-0.5 text-sm text-white">
-            kecepatan {speedLabel}
+            kecepatan {speedLabel} · Level {levelLabel.level}/100 {levelLabel.emoji} {levelLabel.name}
+          </div>
+          {/* tombol gas & rem (HP) */}
+          <div className="pointer-events-none absolute bottom-4 left-0 right-0 z-20 flex items-end justify-between px-4">
+            {!gyroOn && (
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault()
+                  touchBrakeRef.current = true
+                }}
+                onPointerUp={() => (touchBrakeRef.current = false)}
+                onPointerLeave={() => (touchBrakeRef.current = false)}
+                onPointerCancel={() => (touchBrakeRef.current = false)}
+                className="pointer-events-auto h-20 w-20 touch-none select-none rounded-full bg-red-500/80 text-sm font-black text-white shadow-lg active:bg-red-600"
+              >
+                🛑 Rem
+              </button>
+            )}
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault()
+                touchGasRef.current = true
+              }}
+              onPointerUp={() => (touchGasRef.current = false)}
+              onPointerLeave={() => (touchGasRef.current = false)}
+              onPointerCancel={() => (touchGasRef.current = false)}
+              className="pointer-events-auto ml-auto h-20 w-20 touch-none select-none rounded-full bg-green-500/80 text-sm font-black text-white shadow-lg active:bg-green-600"
+            >
+              ⛽ Gas
+            </button>
           </div>
           <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex flex-col items-center gap-1">
             {popups.map((p) => (
@@ -479,7 +591,7 @@ export default function GameCanvas() {
           <div className="w-full max-w-md rounded-3xl bg-white/95 p-6 shadow-2xl">
             <h1 className="text-center text-4xl font-black text-sky-700">✈️ Tilt Plane</h1>
             <p className="mt-1 text-center text-sm text-slate-600">
-              Terbang, lewati cincin emas, hindari ranjau! Bisa dikendalikan dengan micro:bit.
+              Kumpulkan koin emas, hindari ranjau &amp; burung! Bisa dikendalikan dengan micro:bit, gyro HP, atau sentuhan.
             </p>
             <div className="mt-4">
               <div className="text-center text-sm font-bold text-slate-700">Kecepatan game</div>
@@ -578,8 +690,24 @@ export default function GameCanvas() {
             </div>
 
             <p className="mt-4 text-center text-xs text-slate-500">
-              Tanpa micro:bit: panah/WASD di laptop, atau di HP: geser layar / aktifkan gyro.
+              Tanpa micro:bit: panah/WASD di laptop (F=gas, V=rem), atau di HP: geser layar / aktifkan gyro + tombol Gas.
             </p>
+
+            {leaderboard.length > 0 && (
+              <div className="mt-3 rounded-2xl bg-yellow-50 p-4">
+                <div className="text-sm font-bold text-yellow-800">🏆 Papan Skor Tinggi</div>
+                <ol className="mt-2 space-y-0.5 text-sm text-slate-700">
+                  {leaderboard.slice(0, 5).map((row, i) => (
+                    <li key={i} className="flex justify-between gap-2">
+                      <span className="truncate">
+                        {i + 1}. {row.name} <span className="text-xs text-slate-400">Lv{row.level}</span>
+                      </span>
+                      <span className="font-bold tabular-nums">{row.score}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -591,7 +719,39 @@ export default function GameCanvas() {
             <h2 className="text-3xl font-black text-red-600">💥 Game Over</h2>
             <p className="mt-2 text-lg text-slate-700">
               Skor kamu: <span className="text-2xl font-extrabold text-sky-700">{finalScore}</span>
+              <span className="ml-2 text-sm text-slate-500">Level {levelLabel.level} {levelLabel.emoji}</span>
             </p>
+            <div className="mt-3 flex items-center justify-center gap-2">
+              <input
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value.slice(0, 16))}
+                placeholder="Nama kamu"
+                maxLength={16}
+                className="w-40 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-500"
+              />
+              <button
+                onClick={() => void saveScore()}
+                disabled={saveState === 'saving' || saveState === 'ok' || playerName.trim().length === 0}
+                className="rounded-xl bg-yellow-500 px-4 py-2 text-sm font-bold text-white hover:bg-yellow-600 active:scale-95 disabled:opacity-50"
+              >
+                {saveState === 'saving' ? 'Menyimpan…' : saveState === 'ok' ? '✓ Tersimpan' : '🏆 Simpan Skor'}
+              </button>
+            </div>
+            {saveState === 'fail' && (
+              <p className="mt-2 text-xs text-red-600">Gagal menyimpan — coba lagi.</p>
+            )}
+            {leaderboard.length > 0 && (
+              <ol className="mx-auto mt-3 max-w-xs space-y-0.5 text-left text-sm text-slate-700">
+                {leaderboard.slice(0, 5).map((row, i) => (
+                  <li key={i} className="flex justify-between gap-2">
+                    <span className="truncate">
+                      {i + 1}. {row.name} <span className="text-xs text-slate-400">Lv{row.level}</span>
+                    </span>
+                    <span className="font-bold tabular-nums">{row.score}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
             <button
               onClick={startGame}
               className="mt-4 rounded-2xl bg-sky-600 px-8 py-3 text-lg font-bold text-white shadow-lg hover:bg-sky-700 active:scale-95"

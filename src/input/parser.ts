@@ -13,6 +13,10 @@
 export interface ParsedValues {
   x?: number
   y?: number
+  /** Tombol A micro:bit (0/1) — field ke-3 baris "x,y,a,b". */
+  a?: number
+  /** Tombol B micro:bit (0/1) — field ke-4 baris "x,y,a,b". */
+  b?: number
 }
 
 /** Angka bulat/desimal, boleh negatif: -230, 412.5, -230.5 */
@@ -32,7 +36,10 @@ export function parseLine(line: string): ParsedValues | null {
   if (!matches || matches.length === 0) return null
 
   if (matches.length >= 2) {
-    return { x: Number(matches[0]), y: Number(matches[1]) }
+    const out: ParsedValues = { x: Number(matches[0]), y: Number(matches[1]) }
+    if (matches.length >= 3) out.a = Number(matches[2]) // tombol A (rem)
+    if (matches.length >= 4) out.b = Number(matches[3]) // tombol B (gas)
+    return out
   }
 
   const value = Number(matches[0])

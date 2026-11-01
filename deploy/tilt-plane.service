@@ -1,9 +1,9 @@
 [Unit]
-Description=Tilt Plane game statis (game.ainulhakim.com) - port 8095
+Description=Tilt Plane game statis + API highscore (game.ainulhakim.com) - port 8095
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/python3 -m http.server 8095 --directory /home/ainul/games
+ExecStart=/usr/bin/python3 /home/ainul/games/server.py --port 8095 --bind 127.0.0.1 --dir /home/ainul/games
 Restart=always
 RestartSec=3
 User=ainul

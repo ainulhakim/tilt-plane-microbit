@@ -86,6 +86,7 @@ export class MicrobitReader {
 
   private statusCbs: Array<(s: MicrobitStatus) => void> = []
   private inputCbs: Array<(x: number, y: number) => void> = []
+  private btnCbs: Array<(a: boolean, b: boolean) => void> = []
 
   private port: SerialPortLike | null = null
   private reader: ReadableStreamDefaultReader<string> | null = null
@@ -108,6 +109,11 @@ export class MicrobitReader {
 
   onInput(cb: (x: number, y: number) => void): void {
     this.inputCbs.push(cb)
+  }
+
+  /** Status tombol micro:bit (A=rem, B=gas) — dikirim tiap sampel berisi field tombol. */
+  onButtons(cb: (a: boolean, b: boolean) => void): void {
+    this.btnCbs.push(cb)
   }
 
   async connect(): Promise<void> {
@@ -227,6 +233,12 @@ export class MicrobitReader {
     const targetY = v.y !== undefined ? this.normalizeAxis(-v.y) : this.displayedY // Y dibalik
     this.displayedX += (targetX - this.displayedX) * SMOOTHING
     this.displayedY += (targetY - this.displayedY) * SMOOTHING
+
+    if (v.a !== undefined || v.b !== undefined) {
+      const a = (v.a ?? 0) !== 0
+      const b = (v.b ?? 0) !== 0
+      for (const cb of this.btnCbs) cb(a, b)
+    }
 
     if (this.status.state !== 'ok') this.setStatus('ok')
 

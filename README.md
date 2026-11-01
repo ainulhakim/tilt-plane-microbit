@@ -44,15 +44,18 @@ Buat project baru di [makecode.microbit.org](https://makecode.microbit.org), pil
 
 ```javascript
 basic.forever(function () {
-    serial.writeLine("" + input.acceleration(Dimension.X) + "," + input.acceleration(Dimension.Y))
+    serial.writeLine("" + input.acceleration(Dimension.X) + "," + input.acceleration(Dimension.Y) + "," + (input.buttonIsPressed(Button.A) ? 1 : 0) + "," + (input.buttonIsPressed(Button.B) ? 1 : 0))
     basic.pause(40)
 })
 ```
 
+Format baris: `x,y,a,b` — **A = rem**, **B = gas**. Program lama 2 field (`x,y`) tetap didukung.
+
 Download `.hex` lalu **drag ke drive MICROBIT** di komputer. Setelah LED selesai berkedip, klik
 **Hubungkan micro:bit (USB)** di game dan pilih port *mbed / micro:bit*.
 
-Tanpa micro:bit: panah/WASD di laptop, atau geser layar di HP.
+Tanpa micro:bit: panah/WASD di laptop (**F = gas, V = rem**), atau di HP: geser layar +
+tombol **Gas** (kanan) / **Rem** (kiri), atau aktifkan **gyro** + tombol Gas.
 
 ## Menjalankan lokal
 

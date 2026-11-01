@@ -31,6 +31,13 @@ interface MineEntry {
   spinY: number
 }
 
+interface BirdEntry {
+  group: THREE.Group
+  wingL: THREE.Mesh
+  wingR: THREE.Mesh
+  baseY: number
+}
+
 function rand(min: number, max: number): number {
   return min + Math.random() * (max - min)
 }
@@ -41,13 +48,22 @@ function clamp(v: number, min: number, max: number): number {
 
 export interface EntitySystems {
   spawnInitial(): void
-  update(dt: number, speed: number, planeX: number, planeY: number, invincible: boolean): EntityEvent[]
+  update(
+    dt: number,
+    speed: number,
+    planeX: number,
+    planeY: number,
+    invincible: boolean,
+    level: number,
+  ): EntityEvent[]
   reset(): void
 }
 
 export function createEntitySystems(scene: THREE.Scene): EntitySystems {
   // Aset geometri/material bersama — dibuat sekali, tidak di-dispose per entitas.
-  const ringGeo = new THREE.TorusGeometry(2.2, 0.28, 16, 40) // default menghadap sumbu z
+  // Koin emas: silinder pipih menghadap pesawat (sumbu z), berputar seperti koin.
+  const ringGeo = new THREE.CylinderGeometry(1.9, 1.9, 0.3, 24)
+  ringGeo.rotateX(Math.PI / 2)
   const ringMatBase = new THREE.MeshStandardMaterial({
     color: 0xffc23d, // emas
     emissive: 0xffcc00, // kuning menyala
@@ -72,13 +88,55 @@ export function createEntitySystems(scene: THREE.Scene): EntitySystems {
 
   const rings: RingEntry[] = []
   const mines: MineEntry[] = []
+  const birds: BirdEntry[] = []
 
-  let ringsSpawned = 0 // total ring sejak awal run (penjadwalan mine)
+  let ringsSpawned = 0 // total koin sejak awal run (penjadwalan mine)
   let combo = 0
-  let lastRingX = 0 // posisi target ring terakhir (acuan drift)
+  let lastRingX = 0 // posisi target koin terakhir (acuan drift)
   let lastRingY: number = GAME.RING_START_Y
-  let lastRingZ: number | null = null // z ring terakhir, digeser numerik tiap frame
+  let lastRingZ: number | null = null // z koin terakhir, digeser numerik tiap frame
   let nextMineZ: number = GAME.SPAWN_Z
+  let nextBirdZ: number = GAME.SPAWN_Z
+  let birdTime = 0
+
+  // Aset burung (rintangan bergerak)
+  const birdBodyGeo = new THREE.ConeGeometry(0.45, 1.3, 6)
+  birdBodyGeo.rotateX(Math.PI / 2) // moncong mengarah +z (ke arah pemain)
+  const birdBodyMat = new THREE.MeshStandardMaterial({ color: 0x39424e, roughness: 0.5 })
+  const birdWingGeo = new THREE.BoxGeometry(1.5, 0.08, 0.5)
+  birdWingGeo.translate(0.75, 0, 0) // pivot di akar sayap
+  const birdWingMat = new THREE.MeshStandardMaterial({
+    color: 0x5a6a7a,
+    roughness: 0.5,
+    side: THREE.DoubleSide,
+  })
+
+  function buildBird(): { group: THREE.Group; wingL: THREE.Mesh; wingR: THREE.Mesh } {
+    const group = new THREE.Group()
+    group.add(new THREE.Mesh(birdBodyGeo, birdBodyMat))
+    const wingL = new THREE.Mesh(birdWingGeo, birdWingMat)
+    wingL.position.set(0.15, 0.15, 0.1)
+    const wingR = new THREE.Mesh(birdWingGeo, birdWingMat)
+    wingR.position.set(-0.15, 0.15, 0.1)
+    wingR.scale.x = -1 // cermin biar ke sisi kiri
+    group.add(wingL, wingR)
+    return { group, wingL, wingR }
+  }
+
+  function spawnBird(z: number): void {
+    const xLimit = GAME.X_LIMIT - 2
+    const { group, wingL, wingR } = buildBird()
+    const baseY = rand(GAME.Y_MIN, GAME.Y_MAX)
+    group.position.set(rand(-xLimit, xLimit), baseY, z)
+    scene.add(group)
+    birds.push({ group, wingL, wingR, baseY })
+  }
+
+  function removeBird(entry: BirdEntry): void {
+    scene.remove(entry.group)
+    const i = birds.indexOf(entry)
+    if (i >= 0) birds.splice(i, 1)
+  }
 
   function spawnRing(x: number, y: number, z: number): void {
     const mat = ringMatBase.clone()
@@ -166,16 +224,19 @@ export function createEntitySystems(scene: THREE.Scene): EntitySystems {
     planeX: number,
     planeY: number,
     invincible: boolean,
+    level: number,
   ): EntityEvent[] {
     const events: EntityEvent[] = []
     const dz = speed * dt
+    birdTime += dt
 
-    // ---- Ring: gerak +z, deteksi lolos, animasi fade ----
+    // ---- Koin: gerak +z, putar, deteksi tepuk, animasi fade ----
     for (let i = rings.length - 1; i >= 0; i--) {
       const r = rings[i]
       const oldZ = r.mesh.position.z
       const newZ = oldZ + dz
       r.mesh.position.z = newZ
+      if (r.state === 'idle') r.mesh.rotation.y += dt * 2.6 // koin berputar
 
       // Ring baru saja melewati bidang pesawat (z = 0)
       if (r.state === 'idle' && oldZ < 0 && newZ >= 0) {
@@ -266,18 +327,53 @@ export function createEntitySystems(scene: THREE.Scene): EntitySystems {
       }
     }
 
+    // ---- Burung: rintangan bergerak, mulai level >= BIRD_START_LEVEL ----
+    nextBirdZ += dz
+    if (level >= GAME.BIRD_START_LEVEL) {
+      while (nextBirdZ >= GAME.SPAWN_Z) {
+        spawnBird(nextBirdZ)
+        nextBirdZ -= GAME.BIRD_SPACING_Z
+      }
+    } else {
+      nextBirdZ = GAME.SPAWN_Z // tahan agar tidak menumpuk sebelum level cukup
+    }
+    for (let i = birds.length - 1; i >= 0; i--) {
+      const bd = birds[i]
+      const p = bd.group.position
+      p.z += dz
+      p.y = bd.baseY + Math.sin(birdTime * 2.2 + p.z * 0.12) * 1.5
+      const flap = Math.sin(birdTime * 13 + p.z) * 0.55
+      bd.wingL.rotation.z = flap
+      bd.wingR.rotation.z = -flap
+
+      if (!invincible) {
+        const dx = p.x - planeX
+        const dy = p.y - planeY
+        if (Math.sqrt(dx * dx + dy * dy + p.z * p.z) < GAME.BIRD_HIT_DIST) {
+          events.push({ type: 'mine-hit' })
+          combo = 0
+          removeBird(bd)
+          continue
+        }
+      }
+
+      if (p.z > GAME.DESPAWN_Z) removeBird(bd)
+    }
+
     return events
   }
 
   function reset(): void {
     for (let i = rings.length - 1; i >= 0; i--) removeRing(rings[i])
     for (let i = mines.length - 1; i >= 0; i--) removeMine(mines[i])
+    for (let i = birds.length - 1; i >= 0; i--) removeBird(birds[i])
     ringsSpawned = 0
     combo = 0
     lastRingX = 0
     lastRingY = GAME.RING_START_Y
     lastRingZ = null
     nextMineZ = GAME.SPAWN_Z
+    nextBirdZ = GAME.SPAWN_Z
   }
 
   return { spawnInitial, update, reset }
