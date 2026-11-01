@@ -14,6 +14,21 @@ Kendalikan dengan **BBC micro:bit via USB (Web Serial)**, keyboard (panah/WASD),
 - Ranjau berduri, 3 nyawa, invincibility 1,6 dtk + kedip
 - 4 ring awal membentuk garis lurus, suara Web Audio
 - UI Bahasa Indonesia
+- **3 preset kecepatan** (🐢 Lambat untuk anak-anak / ✈️ Normal / 🚀 Cepat)
+- **Akrobatik 360°** — miringkan penuh untuk roll/loop penuh
+- **Kendali gyro HP** (DeviceOrientation, izin iOS otomatis diminta)
+
+## Kendali
+
+| Perangkat | Cara |
+|---|---|
+| micro:bit (USB) | Web Serial 115200 baud, tilt kiri/kanan & atas/bawah |
+| Gyro HP | Tombol "Aktifkan Gyro", miringkan HP (kanan-kiri, atas-bawah) |
+| Laptop | Panah / WASD |
+| HP (tanpa gyro) | Geser layar |
+
+Checkbox *Balik arah naik/turun* & *Balik arah kiri/kanan* tersedia kalau orientasi
+perangkat terasa terbalik (tersimpan di localStorage).
 
 ## Kendali micro:bit (USB)
 

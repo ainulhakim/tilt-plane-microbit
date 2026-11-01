@@ -7,6 +7,16 @@ export const GAME = {
   SPEED_START: 38,
   SPEED_ACCEL: 1.15, // per detik sampai SPEED_MAX
   SPEED_MAX: 75,
+  // Preset kecepatan (mode anak-anak s.d. ngebut). "Mulai Main" memakai preset terpilih.
+  SPEED_PRESETS: {
+    lambat: { label: '🐢 Lambat', start: 24, max: 42, accel: 0.8 },
+    normal: { label: '✈️ Normal', start: 38, max: 75, accel: 1.15 },
+    cepat: { label: '🚀 Cepat', start: 50, max: 95, accel: 1.5 },
+  },
+  // Akrobatik 360°: saat input mendekati penuh, pesawat mulai berputar penuh (roll/loop).
+  TRICK_THRESHOLD: 0.85,
+  TRICK_RATE: 3.4, // radian/detik saat input penuh (≈1 putaran / 1,8 dtk)
+  TRICK_RETURN: 4.5, // radian/detik kembali ke level saat input dilepas
   X_LIMIT: 22, // batas kiri/kanan pesawat
   Y_MIN: 2.2,
   Y_MAX: 22,
@@ -28,7 +38,7 @@ export const GAME = {
   INPUT_LERP: 0.18, // smoothing input per frame
 } as const
 
-export type InputSource = 'microbit' | 'keyboard' | 'touch' | 'none'
+export type InputSource = 'microbit' | 'gyro' | 'keyboard' | 'touch' | 'none'
 
 export interface InputState {
   x: number // -1..1
