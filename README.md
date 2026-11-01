@@ -1,0 +1,70 @@
+# Tilt Plane ✈️
+
+Game terbang 3D low-poly di browser — lewati cincin emas, hindari ranjau berduri.
+**Live:** [game.ainulhakim.com/pesawat](https://game.ainulhakim.com/pesawat/)
+
+Dibangun dengan **Vite + React + TypeScript + three.js + Tailwind**.
+Kendalikan dengan **BBC micro:bit via USB (Web Serial)**, keyboard (panah/WASD), atau sentuhan layar.
+
+## Fitur
+
+- Dunia 3D low-poly: laut bergelombang, pulau + palem (recycle), awan, kabut
+- Pesawat: badan oranye, sayap kuning, propeller berputar, kokpit biru
+- Cincin emas combo s.d. ×5 + popup skor
+- Ranjau berduri, 3 nyawa, invincibility 1,6 dtk + kedip
+- 4 ring awal membentuk garis lurus, suara Web Audio
+- UI Bahasa Indonesia
+
+## Kendali micro:bit (USB)
+
+Game membaca tilt via **Web Serial API** (Chrome/Edge desktop) pada 115200 baud.
+Parser menerima dua format baris:
+
+- `412,-230` (pasangan x,y — direkomendasikan)
+- `x:412` / `y:-230` (gaya MakeCode, satu baris per sumbu)
+
+### Program micro:bit (MakeCode)
+
+Buat project baru di [makecode.microbit.org](https://makecode.microbit.org), pilih tampilan **JavaScript**, paste:
+
+```javascript
+basic.forever(function () {
+    serial.writeLine("" + input.acceleration(Dimension.X) + "," + input.acceleration(Dimension.Y))
+    basic.pause(40)
+})
+```
+
+Download `.hex` lalu **drag ke drive MICROBIT** di komputer. Setelah LED selesai berkedip, klik
+**Hubungkan micro:bit (USB)** di game dan pilih port *mbed / micro:bit*.
+
+Tanpa micro:bit: panah/WASD di laptop, atau geser layar di HP.
+
+## Menjalankan lokal
+
+```bash
+npm install
+npm run dev      # dev server
+npm run build    # output ke dist/
+```
+
+## Deployment
+
+Game di-host di server rumah (port 8095, systemd unit `tilt-plane`, static http.server)
+dan diekspos lewat Cloudflare Tunnel → `game.ainulhakim.com`.
+Detail langkah lengkap: [`deploy/README-DEPLOY.md`](deploy/README-DEPLOY.md).
+
+Update build berikutnya cukup:
+
+```bash
+npm run build
+scp -r dist/* user@server:~/games/pesawat/   # tanpa restart apapun
+```
+
+## Struktur
+
+```
+src/
+  game/     # dunia 3D, pesawat, rintangan, audio
+  input/    # micro:bit Web Serial, parser, keyboard/touch
+deploy/     # paket deployment (landing, systemd unit, panduan)
+```

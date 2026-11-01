@@ -1,0 +1,360 @@
+/**
+ * world.ts — Dunia 3D game Tilt Plane.
+ *
+ * Berisi laut low-poly bergelombang, pulau palem di kiri/kanan jalur,
+ * awan di ketinggian, matahari, pencahayaan, dan pesawat pemain.
+ * Semua geometri dibuat sekali saat create/createWorld — tanpa tekstur
+ * maupun aset file eksternal. Gaya: low-poly ceria.
+ */
+import * as THREE from 'three'
+import { GAME } from '../types'
+
+/** Warna langit (dipakai untuk background + fog). */
+const SKY_COLOR = 0x87ceeb
+
+const DESPAWN_Z = GAME.DESPAWN_Z // 20 — di belakang kamera
+const SPAWN_Z = GAME.SPAWN_Z // -170 — muncul di depan
+/** Jarak minimal jalur pulau dari sumbu pesawat (x=0). */
+const ISLAND_LANE_GAP = 26
+/** Lebar pita x untuk penempatan pulau setelah melewati gap. */
+const ISLAND_X_SPREAD = 26
+/** Batas x penyebaran awan (awan boleh melintang di atas jalur). */
+const CLOUD_X_SPREAD = 70
+/** Kelipatan kecepatan scroll awan (lebih lambat dari pulau). */
+const CLOUD_SPEED_FACTOR = 0.3
+/** Kecepatan putar baling-baling (rad/detik). */
+const PROPELLER_SPIN = 28
+
+const COLORS = {
+  sea: 0x2f9be0,
+  sand: 0xf0d488,
+  hill: 0x5cbf4e,
+  trunk: 0x8a5a33,
+  leaf: 0x2e9e4f,
+  cloud: 0xffffff,
+  sun: 0xfff3ae,
+  body: 0xff7f2a,
+  wing: 0xffd23f,
+  nose: 0xffffff,
+  cockpit: 0x2f7fe0,
+  prop: 0x4a4a55,
+  hub: 0x33333d,
+} as const
+
+/* ============================================================
+ * DUNIA (laut, pulau, awan, matahari, lampu)
+ * ============================================================ */
+
+export interface World {
+  update(dt: number, speed: number): void
+  dispose(): void
+}
+
+export function createWorld(scene: THREE.Scene): World {
+  // ---- 1. Langit & kabut ----
+  scene.background = new THREE.Color(SKY_COLOR)
+  scene.fog = new THREE.Fog(SKY_COLOR, 60, 220)
+
+  // Kumpulan resource untuk dispose() yang rapi.
+  const geometries: THREE.BufferGeometry[] = []
+  const materials: THREE.Material[] = []
+  const owned: THREE.Object3D[] = []
+
+  const trackGeometry = <T extends THREE.BufferGeometry>(g: T): T => {
+    geometries.push(g)
+    return g
+  }
+  const trackMaterial = <T extends THREE.Material>(m: T): T => {
+    materials.push(m)
+    return m
+  }
+
+  // ---- 2. Lampu: ambient + directional (matahari) ----
+  const ambient = new THREE.AmbientLight(0xffffff, 0.85)
+  const dirLight = new THREE.DirectionalLight(0xfff4d6, 1.6)
+  dirLight.position.set(40, 80, -60)
+  scene.add(ambient, dirLight)
+  owned.push(ambient, dirLight)
+
+  // ---- 3. Matahari: disc pucat jauh di langit ----
+  const sunGeo = trackGeometry(new THREE.CircleGeometry(10, 24))
+  const sunMat = trackMaterial(
+    new THREE.MeshBasicMaterial({ color: COLORS.sun, fog: false }),
+  )
+  const sunMesh = new THREE.Mesh(sunGeo, sunMat)
+  sunMesh.position.set(55, 78, -175)
+  scene.add(sunMesh)
+  owned.push(sunMesh)
+
+  // ---- 4. Laut low-poly bergelombang ----
+  // Plane 800x800, segmen 48x48. Mesh diputar -90° X sehingga sumbu-z
+  // lokal menunjuk ke atas dunia: menggeser z verteks = ketinggian gelombang.
+  const seaGeo = trackGeometry(new THREE.PlaneGeometry(800, 800, 48, 48))
+  const seaMat = trackMaterial(
+    new THREE.MeshLambertMaterial({ color: COLORS.sea, flatShading: true }),
+  )
+  const sea = new THREE.Mesh(seaGeo, seaMat)
+  sea.rotation.x = -Math.PI / 2
+  sea.position.y = 0
+  scene.add(sea)
+  owned.push(sea)
+
+  // ---- Geometri & material bersama pulau (dibuat sekali) ----
+  const sandGeo = trackGeometry(new THREE.CylinderGeometry(1.0, 1.3, 1.0, 7))
+  const hillGeo = trackGeometry(new THREE.ConeGeometry(1.7, 2.6, 6))
+  const trunkGeo = trackGeometry(new THREE.CylinderGeometry(0.07, 0.12, 1.2, 5))
+  trunkGeo.translate(0, 0.6, 0) // basis batang di y=0 agar mudah diposisikan
+  const leafGeo = trackGeometry(new THREE.ConeGeometry(0.3, 1.0, 4))
+  leafGeo.translate(0, 0.5, 0) // basis daun di y=0 sebagai titik pivot
+
+  const sandMat = trackMaterial(
+    new THREE.MeshLambertMaterial({ color: COLORS.sand, flatShading: true }),
+  )
+  const hillMat = trackMaterial(
+    new THREE.MeshLambertMaterial({ color: COLORS.hill, flatShading: true }),
+  )
+  const trunkMat = trackMaterial(
+    new THREE.MeshLambertMaterial({ color: COLORS.trunk, flatShading: true }),
+  )
+  const leafMat = trackMaterial(
+    new THREE.MeshLambertMaterial({ color: COLORS.leaf, flatShading: true }),
+  )
+
+  /** Bangun satu pohon palem: batang coklat miring + 3-5 daun hijau. */
+  function buildPalm(): THREE.Group {
+    const palm = new THREE.Group()
+
+    const trunk = new THREE.Mesh(trunkGeo, trunkMat)
+    palm.add(trunk)
+
+    const leafCount = 3 + Math.floor(Math.random() * 3) // 3..5 daun
+    for (let i = 0; i < leafCount; i++) {
+      const pivot = new THREE.Group()
+      pivot.position.y = 1.2 // puncak batang
+      pivot.rotation.y = (i / leafCount) * Math.PI * 2 + Math.random() * 0.4
+
+      const leaf = new THREE.Mesh(leafGeo, leafMat)
+      leaf.rotation.z = -(0.9 + Math.random() * 0.5) // miring keluar & menunduk
+      leaf.position.x = 0.12
+      leaf.scale.setScalar(0.85 + Math.random() * 0.4)
+      pivot.add(leaf)
+      palm.add(pivot)
+    }
+
+    // Pohon condong sedikit biar terlihat hidup.
+    palm.rotation.z = (Math.random() - 0.5) * 0.3
+    palm.rotation.x = (Math.random() - 0.5) * 0.3
+    const s = 0.8 + Math.random() * 0.4
+    palm.scale.setScalar(s)
+    return palm
+  }
+
+  /** Bangun satu pulau: pasir gepeng + bukit hijau + 2-4 palem. */
+  function buildIsland(): THREE.Group {
+    const island = new THREE.Group()
+
+    // Pasir: silinder gepeng, dasarnya sedikit tenggelam di laut.
+    const sand = new THREE.Mesh(sandGeo, sandMat)
+    sand.position.y = 0.4
+    sand.rotation.y = Math.random() * Math.PI
+    island.add(sand)
+
+    // Bukit hijau di atas pasir, sedikit acak posisinya.
+    const hill = new THREE.Mesh(hillGeo, hillMat)
+    hill.position.set(
+      (Math.random() - 0.5) * 0.7,
+      0.9 + 1.3, // puncak pasir + setengah tinggi kerucut
+      (Math.random() - 0.5) * 0.7,
+    )
+    island.add(hill)
+
+    // 2-4 palem tersebar di sekitar tepi pasir.
+    const palmCount = 2 + Math.floor(Math.random() * 3) // 2..4
+    for (let i = 0; i < palmCount; i++) {
+      const palm = buildPalm()
+      const angle = Math.random() * Math.PI * 2
+      const radius = 0.5 + Math.random() * 0.45
+      palm.position.set(Math.cos(angle) * radius, 0.9, Math.sin(angle) * radius)
+      island.add(palm)
+    }
+
+    island.userData.kind = 'island'
+    return island
+  }
+
+  /** Skala pulau acak — variasi ukuran tiap spawn/recycle. */
+  function randomizeIslandTransform(island: THREE.Group, side: number): void {
+    island.position.x = side * (ISLAND_LANE_GAP + Math.random() * ISLAND_X_SPREAD)
+    island.scale.setScalar(0.7 + Math.random() * 0.7)
+    island.rotation.y = Math.random() * Math.PI * 2
+  }
+
+  // ---- 5. Pulau & awan: semua dalam satu grup 'movers' ----
+  const movers = new THREE.Group()
+  movers.name = 'movers'
+  scene.add(movers)
+  owned.push(movers)
+
+  const ISLAND_COUNT = 10
+  for (let i = 0; i < ISLAND_COUNT; i++) {
+    const island = buildIsland()
+    const side = i % 2 === 0 ? -1 : 1 // selang-seling kiri/kanan
+    randomizeIslandTransform(island, side)
+    island.position.z =
+      SPAWN_Z + (i / (ISLAND_COUNT - 1)) * (DESPAWN_Z - SPAWN_Z) + (Math.random() - 0.5) * 12
+    movers.add(island)
+  }
+
+  // ---- Awan low-poly: gabungan 2-4 sphere, ketinggian 25-40 ----
+  const cloudGeo = trackGeometry(new THREE.SphereGeometry(1, 7, 5))
+  const cloudMat = trackMaterial(
+    new THREE.MeshLambertMaterial({ color: COLORS.cloud, flatShading: true }),
+  )
+
+  const CLOUD_COUNT = 8
+  for (let i = 0; i < CLOUD_COUNT; i++) {
+    const cloud = new THREE.Group()
+    const puffCount = 2 + Math.floor(Math.random() * 3) // 2..4 gumpalan
+    for (let j = 0; j < puffCount; j++) {
+      const puff = new THREE.Mesh(cloudGeo, cloudMat)
+      puff.position.set((j - (puffCount - 1) / 2) * 1.4, (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.9)
+      puff.scale.setScalar(0.9 + Math.random() * 1.0)
+      cloud.add(puff)
+    }
+    cloud.userData.kind = 'cloud'
+    cloud.position.set(
+      (Math.random() - 0.5) * 2 * CLOUD_X_SPREAD,
+      25 + Math.random() * 15,
+      SPAWN_Z + (i / (CLOUD_COUNT - 1)) * (DESPAWN_Z - SPAWN_Z) + (Math.random() - 0.5) * 30,
+    )
+    movers.add(cloud)
+  }
+
+  /** Recycle anak movers yang sudah lewat kamera ke posisi spawn baru. */
+  function recycle(child: THREE.Object3D): void {
+    child.position.z = SPAWN_Z - Math.random() * 80
+    if (child.userData.kind === 'cloud') {
+      child.position.x = (Math.random() - 0.5) * 2 * CLOUD_X_SPREAD
+      child.position.y = 25 + Math.random() * 15
+    } else {
+      randomizeIslandTransform(child as THREE.Group, Math.random() < 0.5 ? -1 : 1)
+    }
+  }
+
+  let time = 0
+
+  return {
+    update(dt: number, speed: number): void {
+      // Simpan waktu total untuk animasi laut.
+      time += dt
+
+      // Gelombang sinus: geser z verteks (jadi tinggi y dunia setelah
+      // rotasi mesh), fase bergantung x/y verteks + waktu.
+      const pos = seaGeo.getAttribute('position') as THREE.BufferAttribute
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i)
+        const y = pos.getY(i) // sumbu sepanjang jalur setelah rotasi
+        pos.setZ(
+          i,
+          Math.sin(x * 0.16 + time * 1.7) * 0.45 +
+            Math.cos(y * 0.12 + time * 1.15) * 0.35,
+        )
+      }
+      pos.needsUpdate = true
+
+      // Geser pulau (1x speed) dan awan (0.3x) ke arah +z, lalu recycle.
+      for (const child of movers.children) {
+        const mult = child.userData.kind === 'cloud' ? CLOUD_SPEED_FACTOR : 1
+        child.position.z += speed * dt * mult
+        if (child.position.z > DESPAWN_Z) recycle(child)
+      }
+    },
+
+    dispose(): void {
+      for (const obj of owned) scene.remove(obj)
+      for (const g of geometries) g.dispose()
+      for (const m of materials) m.dispose()
+      scene.background = null
+      scene.fog = null
+    },
+  }
+}
+
+/* ============================================================
+ * PESAWAT (menghadap arah -z, menjauh dari kamera)
+ * ============================================================ */
+
+export interface Plane {
+  group: THREE.Group
+  spinPropeller(dt: number): void
+}
+
+export function createPlane(): Plane {
+  const flat = (color: number) =>
+    new THREE.MeshLambertMaterial({ color, flatShading: true })
+  const bodyMat = flat(COLORS.body)
+  const wingMat = flat(COLORS.wing)
+  const noseMat = flat(COLORS.nose)
+  const cockpitMat = flat(COLORS.cockpit)
+  const propMat = flat(COLORS.prop)
+  const hubMat = flat(COLORS.hub)
+
+  const group = new THREE.Group()
+
+  // Badan oranye: kapsul dibaringkan mengikuti sumbu z (origin di tengah).
+  const bodyGeo = new THREE.CapsuleGeometry(0.5, 1.7, 4, 10)
+  bodyGeo.rotateX(Math.PI / 2)
+  const body = new THREE.Mesh(bodyGeo, bodyMat)
+  group.add(body)
+
+  // Hidung putih di ujung depan (-z).
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), noseMat)
+  nose.scale.set(1, 1, 0.72)
+  nose.position.z = -1.35
+  group.add(nose)
+
+  // Baling-baling di ujung terdepan: hub silinder (sumbu z) + 2 blade box tipis.
+  const propeller = new THREE.Group()
+  propeller.position.z = -1.66
+
+  const hubGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.24, 8)
+  hubGeo.rotateX(Math.PI / 2)
+  propeller.add(new THREE.Mesh(hubGeo, hubMat))
+
+  const bladeGeo = new THREE.BoxGeometry(0.16, 1.15, 0.06)
+  bladeGeo.translate(0, 0.58, 0) // pivot blade di hub
+  const bladeA = new THREE.Mesh(bladeGeo, propMat)
+  const bladeB = new THREE.Mesh(bladeGeo, propMat)
+  bladeB.rotation.z = Math.PI // blade kedua berlawanan arah
+  propeller.add(bladeA, bladeB)
+  group.add(propeller)
+
+  // Sayap kuning: box tipis melebar sumbu x.
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.12, 0.9), wingMat)
+  wing.position.set(0, 0.12, 0.1)
+  group.add(wing)
+
+  // Ekor kuning: stabilizer horizontal + sirip vertikal.
+  const tailWing = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.1, 0.5), wingMat)
+  tailWing.position.set(0, 0.12, 1.25)
+  group.add(tailWing)
+
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.75, 0.55), wingMat)
+  fin.position.set(0, 0.45, 1.28)
+  group.add(fin)
+
+  // Kokpit biru: setengah bola di punggung badan.
+  const cockpit = new THREE.Mesh(
+    new THREE.SphereGeometry(0.42, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2),
+    cockpitMat,
+  )
+  cockpit.position.set(0, 0.4, -0.35)
+  group.add(cockpit)
+
+  return {
+    group,
+    spinPropeller(dt: number): void {
+      propeller.rotation.z += dt * PROPELLER_SPIN
+    },
+  }
+}

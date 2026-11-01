@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎮 Game Ainul Hakim</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{min-height:100vh;font-family:'Segoe UI',system-ui,sans-serif;background:linear-gradient(135deg,#0f0c29 0%,#302b63 55%,#24243e 100%);color:#fff;display:flex;align-items:center;justify-content:center;padding:24px}
+.wrap{max-width:640px;width:100%}
+h1{text-align:center;font-size:2rem;margin-bottom:4px}
+p.sub{text-align:center;color:#c7c9e0;margin-bottom:28px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+a.card{display:block;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:18px;padding:20px;text-decoration:none;color:#fff;transition:.2s}
+a.card:hover{background:rgba(255,255,255,.16);transform:translateY(-3px)}
+.icon{font-size:2.2rem}
+.card h2{margin:8px 0 4px;font-size:1.15rem}
+.card p{color:#c7c9e0;font-size:.9rem;line-height:1.45}
+.badge{display:inline-block;background:#fbbf24;color:#78350f;font-size:.72rem;font-weight:700;border-radius:999px;padding:2px 10px;margin-top:10px}
+footer{text-align:center;color:#8f92b5;font-size:.8rem;margin-top:28px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎮 Game Ainul Hakim</h1>
+  <p class="sub">Kumpulan game seru — beberapa bisa dikendalikan BBC micro:bit!</p>
+  <div class="grid">
+    <a class="card" href="/pesawat/">
+      <div class="icon">✈️</div>
+      <h2>Tilt Plane</h2>
+      <p>Terbangkan pesawat lewati cincin emas, hindari ranjau. Kendalikan dengan <b>micro:bit via USB</b> (Chrome/Edge laptop) atau sentuhan.</p>
+      <span class="badge">micro:bit · Baru!</span>
+    </a>
+  </div>
+  <footer>hosting: server rumah · tunnel Cloudflare</footer>
+</div>
+</body>
+</html>
