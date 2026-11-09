@@ -6,11 +6,14 @@ import { createEntitySystems, type EntitySystems } from './entities'
 import { GameAudio } from './audio'
 import { MicrobitReader, type MicrobitStatus } from '../input/microbit'
 import { GyroReader, type GyroStatus } from '../input/gyro'
+import { flashFirmware, usbFlashSupported, type FlashStatus } from '../input/microbitFlash'
 
 interface Popup {
   id: number
   text: string
 }
+
+const FIRMWARE_URL = import.meta.env.BASE_URL + 'firmware/tilt-plane.hex'
 
 const FLIP_KEY = 'tiltplane-flipY'
 const FLIPX_KEY = 'tiltplane-flipX'
@@ -60,6 +63,7 @@ export default function GameCanvas() {
   const [playerName, setPlayerName] = useState(() => localStorage.getItem('tiltplane-name') ?? '')
   const [leaderboard, setLeaderboard] = useState<Array<{ name: string; score: number; level: number }>>([])
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'ok' | 'fail'>('idle')
+  const [injectStatus, setInjectStatus] = useState<FlashStatus>({ state: 'idle' })
 
   // ---------- Semua state game berat ada di ref (60fps) ----------
   const phaseRef = useRef<GamePhase>('menu')
@@ -483,6 +487,12 @@ export default function GameCanvas() {
     void readerRef.current?.disconnect()
   }
 
+  const injectFirmware = () => {
+    // Putuskan serial dulu supaya WebUSB bebas klaim interface DAPLink (best-effort).
+    disconnectMb()
+    void flashFirmware(FIRMWARE_URL, setInjectStatus)
+  }
+
   const statusChip = () => {
     if (gyroOn && gyroStatus.state === 'ok')
       return (
@@ -649,6 +659,66 @@ export default function GameCanvas() {
               ) : (
                 <p className="mt-2 text-sm text-red-600">Pakai Chrome atau Edge di laptop/PC untuk micro:bit. Di HP main pakai sentuhan.</p>
               )}
+
+              {/* Inject firmware — flash program kendali pesawat langsung dari browser (WebUSB/DAPLink) */}
+              <div className="mt-3 rounded-xl bg-white p-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <button
+                    onClick={injectFirmware}
+                    disabled={
+                      injectStatus.state === 'connecting' ||
+                      injectStatus.state === 'downloading' ||
+                      injectStatus.state === 'flashing'
+                    }
+                    className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-bold text-white shadow hover:bg-amber-600 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    ⚡ Inject Firmware ke micro:bit
+                  </button>
+                  <a
+                    href={FIRMWARE_URL}
+                    download="tilt-plane.hex"
+                    className="text-sm font-semibold text-sky-700 underline"
+                  >
+                    Unduh .hex (manual)
+                  </a>
+                </div>
+                {injectStatus.state === 'connecting' && (
+                  <p className="mt-2 text-sm text-slate-600">🔌 Pilih micro:bit di popup Chrome, lalu klik Connect / Pilih.</p>
+                )}
+                {injectStatus.state === 'downloading' && (
+                  <p className="mt-2 text-sm text-slate-600">⏳ Siap-siap inject… jangan cabut kabel!</p>
+                )}
+                {injectStatus.state === 'flashing' && (
+                  <div className="mt-2">
+                    <div className="text-sm font-bold text-amber-700">
+                      ⏳ Inject {Math.round((injectStatus.progress ?? 0) * 100)}% — JANGAN cabut kabel!
+                    </div>
+                    <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                      <div
+                        className="h-full bg-amber-500 transition-all"
+                        style={{ width: `${Math.max(2, Math.round((injectStatus.progress ?? 0) * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {injectStatus.state === 'done' && (
+                  <p className="mt-2 text-sm font-bold text-emerald-700">
+                    ✅ Firmware terpasang! Lampu micro:bit berkedip = program jalan. Sekarang klik "Hubungkan micro:bit (USB)" di atas.
+                  </p>
+                )}
+                {injectStatus.state === 'error' && (
+                  <p className="mt-2 text-sm leading-relaxed text-red-600">{injectStatus.message}</p>
+                )}
+                {injectStatus.state === 'idle' && mbStatus.state === 'ok' && (
+                  <p className="mt-2 text-sm text-slate-500">Putuskan koneksi dulu di atas kalau mau inject ulang.</p>
+                )}
+                <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                  {usbFlashSupported()
+                    ? 'Colok micro:bit pakai USB (Chrome/Edge di laptop, atau Chrome Android + kabel OTG), klik Inject — program kendali pesawat langsung masuk tanpa copy file manual. Aman untuk micro:bit baru/kosong.'
+                    : 'Inject langsung belum tersedia di browser ini: klik "Unduh .hex", lalu copy file itu ke drive MICROBIT (butuh komputer).'}
+                </p>
+              </div>
+
               {(mbStatus.state === 'connected-nodata' || mbStatus.state === 'error' || mbStatus.state === 'unsupported') && (
                 <p className="mt-2 text-xs leading-relaxed text-slate-600">
                   {mbStatus.state === 'connected-nodata'

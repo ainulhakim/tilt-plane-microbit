@@ -1,0 +1,11 @@
+{
+    "name": "tilt-plane firmware",
+    "description": "Tilt Plane v2.0 firmware: stream x,y,a,b @25Hz over serial",
+    "dependencies": {
+        "core": "file:../core",
+        "microphone": "*"
+    },
+    "files": [
+        "main.ts"
+    ]
+}
